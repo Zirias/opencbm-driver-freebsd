@@ -181,22 +181,30 @@ static void do_reset(struct cbm_data *sc, device_t ppbus)
 }
 
 static int
-cbm_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
+cbm_open(struct cdev *dev, int oflags __unused, int devtype __unused,
+	struct thread *td __unused)
 {
-    (void)dev;
-    (void)oflags;
-    (void)devtype;
-    (void)td;
+    struct cbm_data *sc = dev->si_drv1;
+    device_t ppbus = device_get_parent(sc->sc_device);
+
+    if (sc->sc_busy) return EBUSY;
+
+    // TODO: waitq
+
+    sc->sc_busy = 1;
+    if (sc->sc_hold_clk) SET(CLK_OUT);
+
     return 0;
 }
 
 static int
-cbm_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
+cbm_close(struct cdev *dev, int fflag __unused, int devtype __unused,
+	struct thread *td __unused)
 {
-    (void)dev;
-    (void)fflag;
-    (void)devtype;
-    (void)td;
+    struct cbm_data *sc = dev->si_drv1;
+    device_t ppbus = device_get_parent(sc->sc_device);
+
+    if (!sc->sc_hold_clk) RELEASE(CLK_OUT);
     return 0;
 }
 
