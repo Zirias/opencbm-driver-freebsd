@@ -36,7 +36,7 @@
 #include "ppbus_if.h"
 #include <dev/ppbus/ppbio.h>
 
-#define OPENCBM_NAME "opencbm"
+#define CBM_NAME "cbm"
 
 #define IEC_DATA   1
 #define IEC_CLOCK  2
@@ -75,17 +75,17 @@
                                  sc->sc_data_reverse = 1; } while (0)
 #define disable_irq() CTRL_WRITE(CTRL_READ() & 0xef)
 #define enable_irq() CTRL_WRITE(CTRL_READ() | 0x10)
-#define timeout_us(us) pause("ocbm", hz/1000000 * us)
+#define timeout_us(us) pause(CBM_NAME, hz/1000000 * us)
 
-static d_open_t opencbm_open;
-static d_close_t opencbm_close;
-static d_read_t opencbm_read;
-static d_write_t opencbm_write;
-static d_ioctl_t opencbm_ioctl;
+static d_open_t cbm_open;
+static d_close_t cbm_close;
+static d_read_t cbm_read;
+static d_write_t cbm_write;
+static d_ioctl_t cbm_ioctl;
 
 static int lp = 0;
 
-struct opencbm_data {
+struct cbm_data {
     int sc_irq_rid;
     struct resource *sc_irq_resource;
     void *sc_irq_cookie;
@@ -101,34 +101,34 @@ struct opencbm_data {
     volatile int sc_cbm_irq_count;
 };
 
-static struct cdevsw opencbm_cdevsw = {
+static struct cdevsw cbm_cdevsw = {
     .d_version = D_VERSION,
-    .d_open = opencbm_open,
-    .d_close = opencbm_close,
-    .d_read = opencbm_read,
-    .d_write = opencbm_write,
-    .d_ioctl = opencbm_ioctl,
-    .d_name = OPENCBM_NAME
+    .d_open = cbm_open,
+    .d_close = cbm_close,
+    .d_read = cbm_read,
+    .d_write = cbm_write,
+    .d_ioctl = cbm_ioctl,
+    .d_name = CBM_NAME
 };
 
-static devclass_t opencbm_devclass;
+static devclass_t cbm_devclass;
 
 /* forward references for parallel burst routines */
-int cbm_parallel_burst_read_track(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_read_track(struct cbm_data *sc, device_t ppbus,
 	unsigned char *buffer);
-int cbm_parallel_burst_read_track_var(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_read_track_var(struct cbm_data *sc, device_t ppbus,
 	unsigned char *buffer);
-int cbm_parallel_burst_write_track(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_write_track(struct cbm_data *sc, device_t ppbus,
 	unsigned char *buffer, int length);
-unsigned char cbm_parallel_burst_read(struct opencbm_data *sc, device_t ppbus);
-int cbm_parallel_burst_write(struct opencbm_data *sc, device_t ppbus,
+unsigned char cbm_parallel_burst_read(struct cbm_data *sc, device_t ppbus);
+int cbm_parallel_burst_write(struct cbm_data *sc, device_t ppbus,
 	unsigned char c);
-int cbm_handshaked_read(struct opencbm_data *sc, device_t ppbus, int toggle);
-int cbm_handshaked_write(struct opencbm_data *sc, device_t ppbus,
+int cbm_handshaked_read(struct cbm_data *sc, device_t ppbus, int toggle);
+int cbm_handshaked_write(struct cbm_data *sc, device_t ppbus,
 	char data, int toggle);
 
 static int
-check_if_bus_free(struct opencbm_data *sc, device_t ppbus)
+check_if_bus_free(struct cbm_data *sc, device_t ppbus)
 {
     int ret = 0;
     do
@@ -148,7 +148,7 @@ check_if_bus_free(struct opencbm_data *sc, device_t ppbus)
 }
 
 static void
-wait_for_free_bus(struct opencbm_data *sc, device_t ppbus)
+wait_for_free_bus(struct cbm_data *sc, device_t ppbus)
 {
     int i = 1;
     while (1)
@@ -167,21 +167,21 @@ wait_for_free_bus(struct opencbm_data *sc, device_t ppbus)
     }
 }
 
-static void do_reset(struct opencbm_data *sc, device_t ppbus)
+static void do_reset(struct cbm_data *sc, device_t ppbus)
 {
     device_printf(sc->sc_device, "resetting devices\n");
     RELEASE(DATA_OUT | ATN_OUT | CLK_OUT);
     set_data_forward();
     disable_irq();
     SET(RESET);
-    pause("ocbm", hz/10);
+    pause(CBM_NAME, hz/10);
     RELEASE(RESET);
     device_printf(sc->sc_device, "waiting for free bus...\n");
     wait_for_free_bus(sc, ppbus);
 }
 
 static int
-opencbm_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
+cbm_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 {
     (void)dev;
     (void)oflags;
@@ -191,7 +191,7 @@ opencbm_open(struct cdev *dev, int oflags, int devtype, struct thread *td)
 }
 
 static int
-opencbm_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
+cbm_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 {
     (void)dev;
     (void)fflag;
@@ -201,7 +201,7 @@ opencbm_close(struct cdev *dev, int fflag, int devtype, struct thread *td)
 }
 
 static int
-opencbm_write(struct cdev *dev, struct uio *uio, int ioflag)
+cbm_write(struct cdev *dev, struct uio *uio, int ioflag)
 {
     (void)dev;
     (void)uio;
@@ -210,7 +210,7 @@ opencbm_write(struct cdev *dev, struct uio *uio, int ioflag)
 }
 
 static int
-opencbm_read(struct cdev *dev, struct uio *uio, int ioflag)
+cbm_read(struct cdev *dev, struct uio *uio, int ioflag)
 {
     (void)dev;
     (void)uio;
@@ -219,7 +219,7 @@ opencbm_read(struct cdev *dev, struct uio *uio, int ioflag)
 }
 
 static int
-opencbm_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
+cbm_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 	struct thread *td)
 {
     (void)dev;
@@ -231,31 +231,31 @@ opencbm_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 }
 
 static void
-opencbm_intr(void *arg)
+cbm_intr(void *arg)
 {
 }
 
 static void
-opencbm_identify(driver_t *driver, device_t parent)
+cbm_identify(driver_t *driver, device_t parent)
 {
-    TUNABLE_INT("opencbm.lp", &lp);
+    TUNABLE_INT("cbm.lp", &lp);
     int unit = device_get_unit(parent);
     if (unit != lp) return;
-    device_t dev = device_find_child(parent, OPENCBM_NAME, -1);
-    if (!dev) BUS_ADD_CHILD(parent, 0, OPENCBM_NAME, -1);
+    device_t dev = device_find_child(parent, CBM_NAME, -1);
+    if (!dev) BUS_ADD_CHILD(parent, 0, CBM_NAME, -1);
 }
 
 static int
-opencbm_probe(device_t dev)
+cbm_probe(device_t dev)
 {
     device_set_desc(dev, "Serial CBM bus driver");
     return BUS_PROBE_SPECIFIC;
 }
 
 static int
-opencbm_attach(device_t dev)
+cbm_attach(device_t dev)
 {
-    struct opencbm_data *sc = device_get_softc(dev);
+    struct cbm_data *sc = device_get_softc(dev);
     int error = 0;
 
     sc->sc_irq_rid = 0;
@@ -269,7 +269,7 @@ opencbm_attach(device_t dev)
     }
 
     error = bus_setup_intr(dev, sc->sc_irq_resource,
-	    INTR_TYPE_TTY | INTR_MPSAFE, 0, opencbm_intr,
+	    INTR_TYPE_TTY | INTR_MPSAFE, 0, cbm_intr,
 	    sc, &sc->sc_irq_cookie);
     if (error)
     {
@@ -279,17 +279,31 @@ opencbm_attach(device_t dev)
 	return error;
     }
 
-    sc->sc_device = dev;
-    sc->sc_cdev = make_dev(&opencbm_cdevsw, 0, UID_ROOT, GID_WHEEL, 0600,
-	    OPENCBM_NAME);
+    struct make_dev_args args;
+    make_dev_args_init(&args);
+    args.mda_flags = MAKEDEV_WAITOK | MAKEDEV_CHECKNAME;
+    args.mda_devsw = &cbm_cdevsw;
+    args.mda_uid = UID_ROOT;
+    args.mda_gid = GID_OPERATOR;
+    args.mda_mode = 0600;
+    error = make_dev_s(&args, &sc->sc_cdev, CBM_NAME);
+    if (error)
+    {
+	bus_release_resource(dev, SYS_RES_IRQ, sc->sc_irq_rid,
+		sc->sc_irq_resource);
+	device_printf(dev, "unable to create character device\n");
+	return error;
+    }
     sc->sc_cdev->si_drv1 = sc;
+
+    sc->sc_device = dev;
 
     sc->sc_cable = -1;
     sc->sc_reset = 1;
     sc->sc_hold_clk = 1;
-    TUNABLE_INT_FETCH("opencbm.cable", &sc->sc_cable);
-    TUNABLE_INT_FETCH("opencbm.reset", &sc->sc_reset);
-    TUNABLE_INT_FETCH("opencbm.hold_clk", &sc->sc_hold_clk);
+    TUNABLE_INT_FETCH("cbm.cable", &sc->sc_cable);
+    TUNABLE_INT_FETCH("cbm.reset", &sc->sc_reset);
+    TUNABLE_INT_FETCH("cbm.hold_clk", &sc->sc_hold_clk);
 
     device_t ppbus = device_get_parent(dev);
     ppb_lock(ppbus);
@@ -334,7 +348,7 @@ opencbm_attach(device_t dev)
     set_data_forward();
     disable_irq();
 
-    pause("ocbm", hz/20);
+    pause(CBM_NAME, hz/20);
 
     ppb_unlock(ppbus);
 
@@ -342,10 +356,10 @@ opencbm_attach(device_t dev)
 }
 
 static int
-opencbm_detach(device_t dev)
+cbm_detach(device_t dev)
 {
     int error = 0;
-    struct opencbm_data *sc = device_get_softc(dev);
+    struct cbm_data *sc = device_get_softc(dev);
 
     destroy_dev(sc->sc_cdev);
 
@@ -361,29 +375,29 @@ opencbm_detach(device_t dev)
     return error;
 }
 
-static device_method_t opencbm_methods[] = {
-    DEVMETHOD(device_identify, opencbm_identify),
-    DEVMETHOD(device_probe, opencbm_probe),
-    DEVMETHOD(device_attach, opencbm_attach),
-    DEVMETHOD(device_detach, opencbm_detach),
+static device_method_t cbm_methods[] = {
+    DEVMETHOD(device_identify, cbm_identify),
+    DEVMETHOD(device_probe, cbm_probe),
+    DEVMETHOD(device_attach, cbm_attach),
+    DEVMETHOD(device_detach, cbm_detach),
     { 0, 0 }
 };
 
-static driver_t opencbm_driver = {
-    OPENCBM_NAME,
-    opencbm_methods,
-    sizeof(struct opencbm_data)
+static driver_t cbm_driver = {
+    CBM_NAME,
+    cbm_methods,
+    sizeof(struct cbm_data)
 };
 
-DRIVER_MODULE(opencbm, ppbus, opencbm_driver, opencbm_devclass, 0, 0);
-MODULE_DEPEND(opencbm, ppbus, 1, 1, 1);
+DRIVER_MODULE(cbm, ppbus, cbm_driver, cbm_devclass, 0, 0);
+MODULE_DEPEND(cbm, ppbus, 1, 1, 1);
 
 /* 
         And here are the functions, used by parallel burst 
         (they are all called by the ioctl-function)
 */
 
-int cbm_parallel_burst_read_track(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_read_track(struct cbm_data *sc, device_t ppbus,
 	unsigned char *buffer)
 {
 	int i, byte;
@@ -405,7 +419,7 @@ int cbm_parallel_burst_read_track(struct opencbm_data *sc, device_t ppbus,
 	return 1;
 }
 
-int cbm_parallel_burst_read_track_var(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_read_track_var(struct cbm_data *sc, device_t ppbus,
 	unsigned char *buffer)
 {
 	int i, byte;
@@ -429,7 +443,7 @@ int cbm_parallel_burst_read_track_var(struct opencbm_data *sc, device_t ppbus,
 	return 1;
 }
 
-int cbm_parallel_burst_write_track(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_write_track(struct cbm_data *sc, device_t ppbus,
 	unsigned char *buffer, int length)
 {
 	int i;
@@ -450,7 +464,7 @@ int cbm_parallel_burst_write_track(struct opencbm_data *sc, device_t ppbus,
 	return 1;
 }
 
-unsigned char cbm_parallel_burst_read(struct opencbm_data *sc, device_t ppbus)
+unsigned char cbm_parallel_burst_read(struct cbm_data *sc, device_t ppbus)
 {
 	int rv = 0;
 
@@ -471,7 +485,7 @@ unsigned char cbm_parallel_burst_read(struct opencbm_data *sc, device_t ppbus)
 	return rv;
 }
 
-int cbm_parallel_burst_write(struct opencbm_data *sc, device_t ppbus,
+int cbm_parallel_burst_write(struct cbm_data *sc, device_t ppbus,
 	unsigned char c)
 {
 	RELEASE(DATA_OUT | CLK_OUT);
@@ -499,7 +513,7 @@ int cbm_parallel_burst_write(struct opencbm_data *sc, device_t ppbus,
 #define TO_HANDSHAKED_READ  3300000
 #define TO_HANDSHAKED_WRITE 3300000
 
-int cbm_handshaked_read(struct opencbm_data *sc, device_t ppbus, int toggle)
+int cbm_handshaked_read(struct cbm_data *sc, device_t ppbus, int toggle)
 {
 	static int oldvalue = -1;
 	int returnvalue = 0;
@@ -547,7 +561,7 @@ int cbm_handshaked_read(struct opencbm_data *sc, device_t ppbus, int toggle)
 	return returnvalue;
 }
 
-int cbm_handshaked_write(struct opencbm_data *sc, device_t ppbus,
+int cbm_handshaked_write(struct cbm_data *sc, device_t ppbus,
 	char data, int toggle)
 {
 	int to = 0;
