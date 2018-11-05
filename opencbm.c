@@ -114,6 +114,12 @@ typedef struct PARBURST_RW_VALUE {
                                  sc->sc_data_reverse = 1; } while (0)
 #define timeout_us(us) pause(CBM_NAME, hz/1000000 * us)
 
+#ifdef DEBUG
+#define DBGLOG(fmt, ...) log(LOG_DEBUG, fmt, ##__VA_ARGS__)
+#else
+#define DBGLOG(fmt, ...)
+#endif
+
 static d_open_t cbm_open;
 static d_close_t cbm_close;
 static d_read_t cbm_read;
@@ -216,7 +222,7 @@ send_byte(struct cbm_data *sc, device_t ppbus, int b)
 	int i, ack = 0;
 	register_t saveintr;
 
-	log(LOG_DEBUG, "send_byte %02x\n", b);
+	DBGLOG("send_byte %02x\n", b);
 
 	saveintr = intr_disable();
 	for (i = 0; i < 8; i++) {
@@ -232,7 +238,7 @@ send_byte(struct cbm_data *sc, device_t ppbus, int b)
 	for (i = 0; (i < 20) && !(ack = GET(DATA_IN)); i++)
 		DELAY(100);
 
-	log(LOG_DEBUG, "ack=%d\n", ack);
+	DBGLOG("ack=%d\n", ack);
 
 	return ack;
 }
@@ -305,7 +311,7 @@ cbm_raw_write(struct cbm_data *sc, device_t ppbus,
 
 	sc->sc_eoi = sc->sc_cbm_irq_count = 0;
 
-	log(LOG_DEBUG, "cbm_write: %zu bytes, atn=%d\n", cnt, atn);
+	DBGLOG("cbm_write: %zu bytes, atn=%d\n", cnt, atn);
 
 	RELEASE(DATA_OUT);
 	SET(CLK_OUT | (atn ? ATN_OUT : 0));
@@ -324,7 +330,6 @@ cbm_raw_write(struct cbm_data *sc, device_t ppbus,
 	while (cnt > sent && rv == 0) {
 		c = *buf++;
 		DELAY(50);
-		log(LOG_DEBUG, "cbm_write: trying to write %02x\n", c);
 		if (GET(DATA_IN)) {
 			sc->sc_cbm_irq_count = ((sent == (cnt - 1))
 					 && (atn == 0)) ? 2 : 1;
@@ -347,7 +352,7 @@ cbm_raw_write(struct cbm_data *sc, device_t ppbus,
 			rv = -ENODEV;
 		}
 	}
-	log(LOG_DEBUG, "%zu bytes sent, rv=%d\n", sent, rv);
+	DBGLOG("%zu bytes sent, rv=%d\n", sent, rv);
 
 	if (talk && (rv == 0)) {
 		saveintr = intr_disable();
@@ -410,7 +415,7 @@ cbm_read(struct cdev *dev, struct uio *uio, int ioflag __unused)
     device_t ppbus = device_get_parent(sc->sc_device);
 
     ssize_t count = uio->uio_resid;
-    log(LOG_DEBUG, "cbm_read: %zd bytes\n", count);
+    DBGLOG("cbm_read: %zd bytes\n", count);
 
     if (sc->sc_eoi) return 0;
 
@@ -460,7 +465,6 @@ cbm_read(struct cdev *dev, struct uio *uio, int ioflag __unused)
 	    sc->sc_buf[bufpos++] = b;
 	    if (bufpos == BUFFER_SIZE)
 	    {
-		log(LOG_DEBUG, "cbm_read: moving whole buffer\n");
 		uiomove(sc->sc_buf, BUFFER_SIZE, uio);
 		bufpos = 0;
 	    }
@@ -478,13 +482,9 @@ cbm_read(struct cdev *dev, struct uio *uio, int ioflag __unused)
 	return EIO;
     }
 
-    if (bufpos)
-    {
-	log(LOG_DEBUG, "cbm_read: moving %d bytes\n", bufpos);
-	uiomove(sc->sc_buf, bufpos, uio);
-    }
+    if (bufpos) uiomove(sc->sc_buf, bufpos, uio);
 
-    log(LOG_DEBUG, "received=%zu, count=%zd, ok=%d, eoi=%d\n",
+    DBGLOG("received=%zu, count=%zd, ok=%d, eoi=%d\n",
 	    received, count, ok, sc->sc_eoi);
 
     return 0;
@@ -752,20 +752,20 @@ cbm_intr(void *arg)
     POLL();
     if (sc->sc_cbm_irq_count == 0)
     {
-	log(LOG_DEBUG, "cbm_intr(): spurious interrupt\n");
+	device_printf(sc->sc_device, "spurious interrupt\n");
 	return;
     }
     else if (--sc->sc_cbm_irq_count == 0)
     {
 	ppb_lock(ppbus);
 	SET(CLK_OUT);
-	log(LOG_DEBUG, "cbm_intr(): continue to send\n");
+	DBGLOG("cbm_intr(): continue to send\n");
 	ppb_unlock(ppbus);
 	cv_signal(&sc->sc_cvp);
     }
     else
     {
-	log(LOG_DEBUG, "cbm_intr(): must still wait\n");
+	DBGLOG("cbm_intr(): must still wait\n");
     }
 }
 
