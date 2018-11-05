@@ -128,7 +128,9 @@ static d_ioctl_t cbm_ioctl;
 
 static int lp = 0;
 
-#define BUFFER_SIZE 256
+static MALLOC_DEFINE(M_CBM, "cbm_buffer", "buffer for CBM bus I/O");
+
+#define BUFFER_SIZE 0x2000
 
 struct cbm_data {
     int sc_irq_rid;
@@ -147,7 +149,7 @@ struct cbm_data {
     volatile int sc_eoi;
     struct mtx sc_lock;
     struct cv sc_cvp;
-    char sc_buf[BUFFER_SIZE];
+    char *sc_buf;
 };
 
 static struct cdevsw cbm_cdevsw = {
@@ -720,18 +722,34 @@ cbm_ioctl(struct cdev *dev, u_long cmd, caddr_t data, int fflag,
 
 	case CBMCTRL_PARBURST_READ_TRACK:
 		val = (PARBURST_RW_VALUE *)data;
-		rv = !cbm_parallel_burst_read_track(sc, ppbus,
-			val->buffer);
+		if (val->length < BUFFER_SIZE)
+		{
+		    rv = EINVAL;
+		    break;
+		}
+		rv = !cbm_parallel_burst_read_track(sc, ppbus, sc->sc_buf);
+		if (!rv) copyout(sc->sc_buf, val->buffer, BUFFER_SIZE);
 		break;
 
 	case CBMCTRL_PARBURST_READ_TRACK_VAR:
 		val = (PARBURST_RW_VALUE *)data;
-		rv = !cbm_parallel_burst_read_track_var(sc, ppbus,
-			val->buffer);
+		if (val->length < BUFFER_SIZE)
+		{
+		    rv = EINVAL;
+		    break;
+		}
+		rv = !cbm_parallel_burst_read_track_var(sc, ppbus, sc->sc_buf);
+		if (!rv) copyout(sc->sc_buf, val->buffer, BUFFER_SIZE);
 		break;
 
 	case CBMCTRL_PARBURST_WRITE_TRACK:
 		val = (PARBURST_RW_VALUE *)data;
+		if (val->length > BUFFER_SIZE)
+		{
+		    rv = EINVAL;
+		    break;
+		}
+		copyin(val->buffer, sc->sc_buf, val->length);
 		rv = !cbm_parallel_burst_write_track(sc, ppbus,
 			val->buffer, val->length);
 		break;
@@ -896,6 +914,8 @@ cbm_attach(device_t dev)
     mtx_init(&sc->sc_lock, CBM_NAME, 0, MTX_DEF);
     cv_init(&sc->sc_cvp, CBM_NAME);
 
+    sc->sc_buf = malloc(BUFFER_SIZE, M_CBM, M_WAITOK);
+
     tsleep(sc, PCATCH, CBM_NAME, hz/20);
 
     return 0;
@@ -906,6 +926,8 @@ cbm_detach(device_t dev)
 {
     int error = 0;
     struct cbm_data *sc = device_get_softc(dev);
+
+    free(sc->sc_buf, M_CBM);
 
     cv_destroy(&sc->sc_cvp);
     mtx_destroy(&sc->sc_lock);
@@ -953,7 +975,7 @@ int cbm_parallel_burst_read_track(struct cbm_data *sc, device_t ppbus,
 
 	saveintr = intr_disable();
 
-	for (i = 0; i < 0x2000; i += 1) {
+	for (i = 0; i < BUFFER_SIZE; i += 1) {
 		byte = cbm_handshaked_read(sc, ppbus, i & 1);
 		if (byte == -1) {
 			intr_restore(saveintr);
@@ -975,7 +997,7 @@ int cbm_parallel_burst_read_track_var(struct cbm_data *sc, device_t ppbus,
 
 	saveintr = intr_disable();
 
-	for (i = 0; i < 0x2000; i += 1) {
+	for (i = 0; i < BUFFER_SIZE; i += 1) {
 		byte = cbm_handshaked_read(sc, ppbus, i & 1);
 		if (byte == -1) {
 			intr_restore(saveintr);
