@@ -1,5 +1,15 @@
 # OpenCBM parallel port driver for FreeBSD
 
+## This repository is obsolete now
+
+*The code in this repository was merged upstream into OpenCBM*
+
+To use this driver, install the OpenCBM ports that are now officially
+available in FreeBSD ports. The driver is in comms/opencbm-kmod, to use it,
+you will also need the XA1541 OpenCBM plugin from comms/opencbm-plugin-xa1541.
+
+## Old outdated README follows
+
 This is the driver needed for parallel port cables (XM-1541, XA-1541) with
 OpenCBM, ported to FreeBSD. If you want to use it, please build OpenCBM from
 this port:
